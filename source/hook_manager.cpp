@@ -134,7 +134,11 @@ static bool install_internal(const char *name, reshade::hook &hook, hook_method 
 }
 static bool install_internal(HMODULE target_module, HMODULE replacement_module, hook_method method)
 {
-	assert(target_module != nullptr && replacement_module != nullptr && target_module != replacement_module);
+	if (target_module == nullptr || replacement_module == nullptr || target_module == replacement_module)
+	{
+		reshade::log::message(reshade::log::level::warning, "> Invalid module! Skipped.");
+		return false;
+	}
 
 	// Load export tables from both modules
 	const std::vector<module_export> target_exports = enumerate_module_exports(target_module);
@@ -275,7 +279,7 @@ static bool uninstall_internal(const char *name, reshade::hook &hook, hook_metho
 	return true;
 }
 
-static reshade::hook find_internal(reshade::hook::address target, reshade::hook::address replacement)
+static named_hook find_internal(reshade::hook::address target, reshade::hook::address replacement)
 {
 	assert(target != nullptr || replacement != nullptr);
 
@@ -294,7 +298,7 @@ static reshade::hook find_internal(reshade::hook::address target, reshade::hook:
 				(target == nullptr || hook.target == target);
 		});
 
-	return it != s_hooks.cend() ? static_cast<const reshade::hook &>(*it) : reshade::hook {};
+	return it != s_hooks.cend() ? *it : named_hook {};
 }
 
 #ifndef RESHADE_TEST_APPLICATION
@@ -319,13 +323,9 @@ static void install_delayed_hooks(const std::filesystem::path &loaded_path, bool
 	}
 
 	const auto check_delayed_hook_path = [](const std::filesystem::path &path) -> HMODULE {
-		// Skip export module if it was loaded somehow before/outside of 'ensure_export_module_loaded' below
-		if (path == s_export_hook_path)
-			return nullptr;
-
 		// Pin the module so it cannot be unloaded by the application and cause problems when ReShade tries to call into it afterwards
 		HMODULE delayed_handle = nullptr;
-		if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN, path.c_str(), &delayed_handle))
+		if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN, path.c_str(), &delayed_handle) || delayed_handle == g_module_handle)
 			return nullptr;
 
 		return delayed_handle;
@@ -333,7 +333,9 @@ static void install_delayed_hooks(const std::filesystem::path &loaded_path, bool
 	const auto install_delayed_hook_path = [&loaded_path](const std::filesystem::path &path, HMODULE delayed_handle) {
 		reshade::log::message(reshade::log::level::info, "Installing delayed hooks for '%s' (Just loaded via LoadLibrary('%s')) ...", path.u8string().c_str(), loaded_path.u8string().c_str());
 
-		install_internal(delayed_handle, g_module_handle, hook_method::function_hook) && reshade::hook::apply_queued_actions();
+		install_internal(delayed_handle, g_module_handle, hook_method::function_hook);
+		if (!reshade::hook::apply_queued_actions())
+			reshade::log::message(reshade::log::level::error, "Failed to install hooks for '%s'!", path.u8string().c_str());
 	};
 
 	if (const auto it = std::find_if(s_delayed_hook_paths.begin(), s_delayed_hook_paths.end(),
@@ -443,7 +445,7 @@ bool reshade::hooks::install(const char *name, hook::address target, hook::addre
 
 	assert(replacement != nullptr);
 
-	hook hook = find_internal(nullptr, replacement);
+	named_hook hook = find_internal(nullptr, replacement);
 	// If the hook was already installed, make sure it was installed for the same target function
 	if (hook.installed())
 		return target == hook.target;
@@ -459,7 +461,7 @@ bool reshade::hooks::install(const char *name, hook::address vtable[], size_t vt
 {
 	assert(vtable != nullptr && replacement != nullptr);
 
-	hook hook = find_internal(&vtable[vtable_index], replacement);
+	named_hook hook = find_internal(&vtable[vtable_index], replacement);
 	// Check if the hook was already installed to this virtual function table
 	if (hook.installed())
 		// It may happen that some other third party (like NVIDIA Streamline) replaced the virtual function table entry since it was originally installed, just ignore that
@@ -476,14 +478,14 @@ void reshade::hooks::uninstall()
 	log::message(log::level::info, "Uninstalling %zu hook(s) ...", s_hooks.size());
 
 	// Disable all hooks in a single batch job
-	for (named_hook &hook_info : s_hooks)
-		hook_info.disable();
+	for (named_hook &hook : s_hooks)
+		hook.disable();
 
 	hook::apply_queued_actions();
 
 	// Afterwards uninstall and remove all hooks from the list
-	for (named_hook &hook_info : s_hooks)
-		uninstall_internal(hook_info.name, hook_info, hook_info.method);
+	for (named_hook &hook : s_hooks)
+		uninstall_internal(hook.name, hook, hook.method);
 
 	s_hooks.clear();
 
@@ -492,6 +494,7 @@ void reshade::hooks::uninstall()
 	{
 		const auto ntdll_module = GetModuleHandleW(L"ntdll.dll");
 		assert(ntdll_module != nullptr);
+
 		const auto LdrUnregisterDllNotification = reinterpret_cast<LONG(NTAPI *)(PVOID Cookie)>(GetProcAddress(ntdll_module, "LdrUnregisterDllNotification"));
 		if (LdrUnregisterDllNotification != nullptr)
 			LdrUnregisterDllNotification(s_dll_notification_cookie);
@@ -518,6 +521,7 @@ void reshade::hooks::register_module(const std::filesystem::path &target_path)
 	{
 		const auto ntdll_module = GetModuleHandleW(L"ntdll.dll");
 		assert(ntdll_module != nullptr);
+
 		const auto LdrRegisterDllNotification = reinterpret_cast<LONG (NTAPI *)(ULONG Flags, FARPROC NotificationFunction, PVOID Context, PVOID *Cookie)>(GetProcAddress(ntdll_module, "LdrRegisterDllNotification"));
 		if (LdrRegisterDllNotification == nullptr ||
 			// The Steam overlay is using 'LoadLibrary' hooks, so always use them too if it is used, to ensure that ReShade installs hooks after the Steam overlay already did so
@@ -576,8 +580,8 @@ void reshade::hooks::register_module(const std::filesystem::path &target_path)
 		log::message(log::level::info, "> Libraries loaded.");
 
 		install_internal(handle, g_module_handle, hook_method::function_hook);
-
-		hook::apply_queued_actions();
+		if (!hook::apply_queued_actions())
+			log::message(log::level::error, "Failed to install hooks for '%s'!", target_path.u8string().c_str());
 	}
 }
 

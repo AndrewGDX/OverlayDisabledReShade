@@ -58,21 +58,21 @@ bool D3D12Device::check_and_upgrade_interface(REFIID riid)
 		return true;
 
 	static constexpr IID iid_lookup[] = {
-		__uuidof(ID3D12Device),
-		__uuidof(ID3D12Device1),
-		__uuidof(ID3D12Device2),
-		__uuidof(ID3D12Device3),
-		__uuidof(ID3D12Device4),
-		__uuidof(ID3D12Device5),
-		__uuidof(ID3D12Device6),
-		__uuidof(ID3D12Device7),
-		__uuidof(ID3D12Device8),
-		__uuidof(ID3D12Device9),
-		__uuidof(ID3D12Device10),
-		__uuidof(ID3D12Device11),
-		__uuidof(ID3D12Device12),
-		__uuidof(ID3D12Device13),
-		__uuidof(ID3D12Device14),
+		__uuidof(ID3D12Device),   // {189819F1-1DB6-4B57-BE54-1821339B85F7}
+		__uuidof(ID3D12Device1),  // {77ACCE80-638E-4E65-8895-C1F23386863E}
+		__uuidof(ID3D12Device2),  // {30BAA41E-B15B-475C-A0BB-1AF5C5B64328}
+		__uuidof(ID3D12Device3),  // {81DADC15-2BAD-4392-93C5-101345C4AA98}
+		__uuidof(ID3D12Device4),  // {E865DF17-A9EE-46F9-A463-3098315AA2E5}
+		__uuidof(ID3D12Device5),  // {8B4F173B-2FEA-4B80-8F58-4307191AB95D}
+		__uuidof(ID3D12Device6),  // {C70B221B-40E4-4A17-89AF-025A0727A6DC}
+		__uuidof(ID3D12Device7),  // {5C014B53-68A1-4B9B-8BD1-DD6046B9358B}
+		__uuidof(ID3D12Device8),  // {9218E6BB-F944-4F7E-A75C-B1B2C7B701F3}
+		__uuidof(ID3D12Device9),  // {4C80E962-F032-4F60-BC9E-EBC2CFA1D83C}
+		__uuidof(ID3D12Device10), // {517F8718-AA66-49F9-B02B-A7AB89C06031}
+		__uuidof(ID3D12Device11), // {5405C344-D457-444E-B4DD-2366E45AEE39}
+		__uuidof(ID3D12Device12), // {5AF5C532-4C91-4CD0-B541-15A405395FC5}
+		__uuidof(ID3D12Device13), // {14EECFFC-4DF8-40F7-A118-5C816F45695E}
+		__uuidof(ID3D12Device14), // {5F6E592D-D895-44C2-8E4A-88AD4926D323}
 	};
 
 	for (unsigned short version = 0; version < ARRAYSIZE(iid_lookup); ++version)
@@ -111,12 +111,25 @@ HRESULT STDMETHODCALLTYPE D3D12Device::QueryInterface(REFIID riid, void **ppvObj
 		return S_OK;
 	}
 
-	// Special case for d3d12on7
-	if (riid == __uuidof(ID3D12DeviceDownlevel))
+	// Interface ID to query the original object from a proxy object
+	constexpr GUID IID_UnwrappedObject = { 0x7f2c9a11, 0x3b4e, 0x4d6a, { 0x81, 0x2f, 0x5e, 0x9c, 0xd3, 0x7a, 0x1b, 0x42 } }; // {7F2C9A11-3B4E-4D6A-812F-5E9CD37A1B42}
+	if (riid == IID_UnwrappedObject)
 	{
-		if (ID3D12DeviceDownlevel *downlevel = nullptr; // Not a 'com_ptr' since D3D12DeviceDownlevel will take ownership
-			_downlevel == nullptr && SUCCEEDED(_orig->QueryInterface(&downlevel)))
-			_downlevel = new D3D12DeviceDownlevel(this, downlevel);
+		_orig->AddRef();
+		*ppvObj = _orig;
+		return S_OK;
+	}
+
+	// Special case for d3d12on7
+	if (riid == __uuidof(ID3D12DeviceDownlevel)) // {74EAEE3F-2F4B-476D-82BA-2B85CB49E310}
+	{
+		if (_downlevel == nullptr)
+		{
+			// Not a 'com_ptr' since D3D12DeviceDownlevel will take ownership
+			ID3D12DeviceDownlevel *downlevel = nullptr;
+			if (SUCCEEDED(_orig->QueryInterface(&downlevel)))
+				_downlevel = new D3D12DeviceDownlevel(this, downlevel);
+		}
 
 		if (_downlevel != nullptr)
 			return _downlevel->QueryInterface(riid, ppvObj);
@@ -258,8 +271,9 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreateGraphicsPipelineState(const D3D12_G
 	assert(!g_in_d3d12_pipeline_creation);
 	g_in_d3d12_pipeline_creation = true;
 
-	if (ppPipelineState == nullptr || // This can happen when application only wants to validate input parameters
-		riid != __uuidof(ID3D12PipelineState) ||
+	if (ppPipelineState == nullptr || ( // This can happen when application only wants to validate input parameters
+		riid != __uuidof(ID3D12PipelineState) &&
+		riid != __uuidof(ID3D12PipelineState1)) ||
 		!invoke_create_and_init_pipeline_event(*pDesc, *reinterpret_cast<ID3D12PipelineState **>(ppPipelineState), hr, true))
 #endif
 		hr = _orig->CreateGraphicsPipelineState(pDesc, riid, ppPipelineState);
@@ -287,8 +301,9 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreateComputePipelineState(const D3D12_CO
 	assert(!g_in_d3d12_pipeline_creation);
 	g_in_d3d12_pipeline_creation = true;
 
-	if (ppPipelineState == nullptr || // This can happen when application only wants to validate input parameters
-		riid != __uuidof(ID3D12PipelineState) ||
+	if (ppPipelineState == nullptr || ( // This can happen when application only wants to validate input parameters
+		riid != __uuidof(ID3D12PipelineState) &&
+		riid != __uuidof(ID3D12PipelineState1)) ||
 		!invoke_create_and_init_pipeline_event(*pDesc, *reinterpret_cast<ID3D12PipelineState **>(ppPipelineState), hr, true))
 #endif
 		hr = _orig->CreateComputePipelineState(pDesc, riid, ppPipelineState);
@@ -820,7 +835,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreateCommittedResource(const D3D12_HEAP_
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -878,7 +893,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreatePlacedResource(ID3D12Heap *pHeap, U
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -930,7 +945,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreateReservedResource(const D3D12_RESOUR
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -967,7 +982,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::OpenSharedHandle(HANDLE NTHandle, REFIID 
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvObj);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;
@@ -1118,13 +1133,13 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreatePipelineLibrary(const void *pLibrar
 			if (reshade::has_addon_event<reshade::addon_event::init_pipeline>() ||
 				reshade::has_addon_event<reshade::addon_event::destroy_pipeline>())
 			{
-				reshade::hooks::install("ID3D12PipelineLibrary::LoadGraphicsPipeline", reshade::hooks::vtable_from_instance(pipeline_library), 9, reinterpret_cast<reshade::hook::address>(&ID3D12PipelineLibrary_LoadGraphicsPipeline));
-				reshade::hooks::install("ID3D12PipelineLibrary::LoadComputePipeline", reshade::hooks::vtable_from_instance(pipeline_library), 10, reinterpret_cast<reshade::hook::address>(&ID3D12PipelineLibrary_LoadComputePipeline));
+				reshade::hooks::install("ID3D12PipelineLibrary::LoadGraphicsPipeline", reshade::hooks::vtable_from_instance(pipeline_library), 9, &ID3D12PipelineLibrary_LoadGraphicsPipeline);
+				reshade::hooks::install("ID3D12PipelineLibrary::LoadComputePipeline", reshade::hooks::vtable_from_instance(pipeline_library), 10, &ID3D12PipelineLibrary_LoadComputePipeline);
 
 				if (com_ptr<ID3D12PipelineLibrary1> pipeline_library1;
 					SUCCEEDED(pipeline_library->QueryInterface(IID_PPV_ARGS(&pipeline_library1))))
 				{
-					reshade::hooks::install("ID3D12PipelineLibrary1::LoadPipeline", reshade::hooks::vtable_from_instance(pipeline_library1.get()), 13, reinterpret_cast<reshade::hook::address>(&ID3D12PipelineLibrary1_LoadPipeline));
+					reshade::hooks::install("ID3D12PipelineLibrary1::LoadPipeline", reshade::hooks::vtable_from_instance(pipeline_library1.get()), 13, &ID3D12PipelineLibrary1_LoadPipeline);
 				}
 			}
 		}
@@ -1173,8 +1188,9 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreatePipelineState(const D3D12_PIPELINE_
 	assert(!g_in_d3d12_pipeline_creation);
 	g_in_d3d12_pipeline_creation = true;
 
-	if (ppPipelineState == nullptr || // This can happen when application only wants to validate input parameters
-		riid != __uuidof(ID3D12PipelineState) ||
+	if (ppPipelineState == nullptr || ( // This can happen when application only wants to validate input parameters
+		riid != __uuidof(ID3D12PipelineState) &&
+		riid != __uuidof(ID3D12PipelineState1)) ||
 		!invoke_create_and_init_pipeline_event(*pDesc, *reinterpret_cast<ID3D12PipelineState **>(ppPipelineState), hr, true))
 #endif
 		hr = static_cast<ID3D12Device2 *>(_orig)->CreatePipelineState(pDesc, riid, ppPipelineState);
@@ -1302,7 +1318,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreateCommittedResource1(const D3D12_HEAP
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -1362,7 +1378,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreateReservedResource1(const D3D12_RESOU
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -1534,7 +1550,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreateCommittedResource2(const D3D12_HEAP
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -1590,7 +1606,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreatePlacedResource1(ID3D12Heap *pHeap, 
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -1727,7 +1743,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreateCommittedResource3(const D3D12_HEAP
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -1784,7 +1800,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreatePlacedResource2(ID3D12Heap *pHeap, 
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -1838,7 +1854,7 @@ HRESULT STDMETHODCALLTYPE D3D12Device::CreateReservedResource2(const D3D12_RESOU
 		{
 			const auto resource = static_cast<ID3D12Resource *>(*ppvResource);
 
-			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_GetDevice));
+			reshade::hooks::install("ID3D12Resource::GetDevice", reshade::hooks::vtable_from_instance(resource), 7, &ID3D12Resource_GetDevice);
 
 #if RESHADE_ADDON
 			invoke_init_resource_event(desc, initial_state, resource);
@@ -1931,10 +1947,10 @@ void D3D12Device::invoke_init_resource_event(const reshade::api::resource_desc &
 #if RESHADE_ADDON >= 2
 	if (reshade::has_addon_event<reshade::addon_event::map_buffer_region>() ||
 		reshade::has_addon_event<reshade::addon_event::map_texture_region>())
-		reshade::hooks::install("ID3D12Resource::Map", reshade::hooks::vtable_from_instance(resource), 8, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_Map));
+		reshade::hooks::install("ID3D12Resource::Map", reshade::hooks::vtable_from_instance(resource), 8, &ID3D12Resource_Map);
 	if (reshade::has_addon_event<reshade::addon_event::unmap_buffer_region>() ||
 		reshade::has_addon_event<reshade::addon_event::unmap_texture_region>())
-		reshade::hooks::install("ID3D12Resource::Unmap", reshade::hooks::vtable_from_instance(resource), 9, reinterpret_cast<reshade::hook::address>(&ID3D12Resource_Unmap));
+		reshade::hooks::install("ID3D12Resource::Unmap", reshade::hooks::vtable_from_instance(resource), 9, &ID3D12Resource_Unmap);
 #endif
 
 	register_resource(resource, initial_state == reshade::api::resource_usage::acceleration_structure);
@@ -2313,6 +2329,13 @@ bool D3D12Device::invoke_create_and_init_pipeline_event(const D3D12_STATE_OBJECT
 			depth_stencil_desc = reshade::d3d12::convert_depth_stencil_desc(*static_cast<const D3D12_DEPTH_STENCIL_DESC2 *>(subobject.pDesc));
 			subobjects.push_back({ reshade::api::pipeline_subobject_type::depth_stencil_state, 1, &depth_stencil_desc });
 			break;
+		case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_SERIALIZED_ROOT_SIGNATURE:
+			// TODO: Replace using 'invoke_create_and_init_pipeline_layout_event'
+			break;
+		case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_SERIALIZED_ROOT_SIGNATURE:
+			break;
+		case D3D12_STATE_SUBOBJECT_TYPE_COMPILER_EXISITING_COLLECTION:
+			break;
 		default:
 			// Unknown sub-object type
 			assert(false);
@@ -2576,6 +2599,10 @@ bool D3D12Device::invoke_create_and_init_pipeline_event(const D3D12_PIPELINE_STA
 			rasterizer_desc = reshade::d3d12::convert_rasterizer_desc(reinterpret_cast<const D3D12_PIPELINE_STATE_STREAM_RASTERIZER2 *>(p)->data);
 			subobjects.push_back({ reshade::api::pipeline_subobject_type::rasterizer_state, 1, &rasterizer_desc });
 			p += sizeof(D3D12_PIPELINE_STATE_STREAM_RASTERIZER2);
+			continue;
+		case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SERIALIZED_ROOT_SIGNATURE:
+			// TODO: Replace using 'invoke_create_and_init_pipeline_layout_event'
+			p += sizeof(D3D12_PIPELINE_STATE_STREAM_SERIALIZED_ROOT_SIGNATURE);
 			continue;
 		default:
 			// Unknown sub-object type, break out of the loop
@@ -2902,7 +2929,7 @@ bool D3D12Device::invoke_create_and_init_pipeline_layout_event(UINT node_mask, c
 
 	reshade::api::pipeline_layout_param *param_data = params.data();
 
-	if (param_count != 0 && (reshade::invoke_addon_event<reshade::addon_event::create_pipeline_layout>(this, param_count, param_data) || modified))
+	if (reshade::invoke_addon_event<reshade::addon_event::create_pipeline_layout>(this, param_count, param_data) || modified)
 	{
 		reshade::api::pipeline_layout layout;
 		hr = device_impl::create_pipeline_layout(param_count, param_data, &layout, flags) ? S_OK : E_FAIL;
@@ -2913,7 +2940,7 @@ bool D3D12Device::invoke_create_and_init_pipeline_layout_event(UINT node_mask, c
 		hr = _orig->CreateRootSignature(node_mask, blob, blob_size, IID_PPV_ARGS(&root_signature));
 	}
 
-	if (SUCCEEDED(hr) && param_count != 0)
+	if (SUCCEEDED(hr))
 	{
 		reshade::invoke_addon_event<reshade::addon_event::init_pipeline_layout>(this, param_count, param_data, to_handle(root_signature));
 

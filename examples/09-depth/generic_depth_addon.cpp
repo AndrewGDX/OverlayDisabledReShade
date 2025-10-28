@@ -269,7 +269,7 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 			if (backup.depth_stencil_resource != 0)
 				continue;
 
-			assert(backup.references == 0 && backup.destroy_after_frame != std::numeric_limits<uint64_t>::max());
+			assert(backup.references == 0 && backup.destroy_after_frame != std::numeric_limits<uint64_t>::max() && backup.backup_texture != 0);
 
 			const resource_desc existing_desc = device->get_resource_desc(backup.backup_texture);
 			if (desc.texture.width == existing_desc.texture.width &&
@@ -278,25 +278,24 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 				desc.usage == existing_desc.usage)
 			{
 				backup.references++;
-				backup.depth_stencil_resource = resource;
 				backup.destroy_after_frame = std::numeric_limits<uint64_t>::max();
+				backup.depth_stencil_resource = resource;
 
 				return &backup;
 			}
 		}
 
-		depth_stencil_backup &backup = depth_stencil_backups.emplace_back();
-		backup.depth_stencil_resource = resource;
+		depth_stencil_backup new_backup;
+		new_backup.depth_stencil_resource = resource;
 
-		if (device->create_resource(desc, nullptr, resource_usage::copy_dest, &backup.backup_texture))
+		if (device->create_resource(desc, nullptr, resource_usage::copy_dest, &new_backup.backup_texture))
 		{
-			device->set_resource_name(backup.backup_texture, "ReShade depth backup texture");
+			device->set_resource_name(new_backup.backup_texture, "ReShade depth backup texture");
 
-			return &backup;
+			return &depth_stencil_backups.emplace_back(std::move(new_backup));
 		}
 		else
 		{
-			depth_stencil_backups.pop_back();
 			reshade::log::message(reshade::log::level::error, "Failed to create backup depth-stencil texture!");
 
 			return nullptr;
@@ -765,7 +764,7 @@ static void on_bind_depth_stencil(command_list *cmd_list, uint32_t, const resour
 static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, const float *depth, const uint8_t *, uint32_t, const rect *)
 {
 	// Ignore clears that do not affect the depth buffer (stencil clears)
-	if (depth != nullptr)
+	if (dsv != 0 && depth != nullptr)
 	{
 		auto &state = *cmd_list->get_private_data<state_tracking>();
 
@@ -1297,8 +1296,9 @@ static void draw_settings_overlay(effect_runtime *runtime)
 
 		const bool selected = item.resource == data.selected_depth_stencil;
 		const bool candidate =
-			(s_format_filtering == 0 || check_depth_format(item.desc.texture.format)) &&
-			(s_aspect_ratio_heuristic == aspect_ratio_heuristic::none || check_aspect_ratio(static_cast<float>(item.desc.texture.width), static_cast<float>(item.desc.texture.height), static_cast<float>(frame_width), static_cast<float>(frame_height)));
+			!(item.snapshot.total_stats.drawcalls == 0 || (item.snapshot.total_stats.vertices <= 3 && item.snapshot.total_stats.drawcalls_indirect == 0)) &&
+			!(s_format_filtering != 0 && !check_depth_format(item.desc.texture.format)) &&
+			!(s_aspect_ratio_heuristic != aspect_ratio_heuristic::none && !check_aspect_ratio(static_cast<float>(item.desc.texture.width), static_cast<float>(item.desc.texture.height), static_cast<float>(frame_width), static_cast<float>(frame_height)));
 
 		char label[21];
 		std::snprintf(label, std::size(label), "%c 0x%016llx", (selected ? '>' : ' '), item.resource.handle);

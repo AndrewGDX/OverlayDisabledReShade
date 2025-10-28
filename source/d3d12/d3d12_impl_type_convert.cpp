@@ -105,7 +105,6 @@ auto reshade::d3d12::convert_barrier_layout_to_usage(D3D12_BARRIER_LAYOUT layout
 	case D3D12_BARRIER_LAYOUT_COMMON:
 	case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON:
 	case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON:
-	case D3D12_BARRIER_LAYOUT_VIDEO_QUEUE_COMMON:
 		return api::resource_usage::general;
 	case D3D12_BARRIER_LAYOUT_GENERIC_READ:
 	case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ:
@@ -432,8 +431,9 @@ void reshade::d3d12::convert_resource_desc(const api::resource_desc &desc, D3D12
 	if ((desc.flags & api::resource_flags::shared) != 0)
 		heap_flags |= D3D12_HEAP_FLAG_SHARED;
 
-	// Dynamic resources do not exist in D3D12
+	// Dynamic or immutable resources do not exist in D3D12
 	assert((desc.flags & api::resource_flags::dynamic) == 0);
+	assert((desc.flags & api::resource_flags::immutable) == 0);
 }
 void reshade::d3d12::convert_resource_desc(const api::resource_desc &desc, D3D12_RESOURCE_DESC1 &internal_desc, D3D12_HEAP_PROPERTIES &heap_props, D3D12_HEAP_FLAGS &heap_flags)
 {
