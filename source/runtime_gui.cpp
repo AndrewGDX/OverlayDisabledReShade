@@ -260,6 +260,7 @@ void reshade::runtime::build_font_atlas()
 
 	ImGui::SetCurrentContext(backup_context);
 
+	_show_splash = false;
 	_rebuild_font_atlas = false;
 }
 
